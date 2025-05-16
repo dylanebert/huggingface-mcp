@@ -13,7 +13,7 @@ hf_api = HfApi(token=HF_TOKEN)
 
 
 @mcp.tool()
-def list_models(
+def search_models(
     search: str = None,
     library: list[str] = None,
     tags: list[str] = None,
@@ -25,7 +25,7 @@ def list_models(
     limit: int = 20,
 ) -> list[str]:
     """
-     List models on Hugging Face Hub.
+    Search models on Hugging Face Hub.
 
     Use this tool to search for models by name, tags, or other filters, and to get a list of model IDs.
     This is the first step when you need to find a specific model before retrieving its details.
@@ -43,9 +43,9 @@ def list_models(
         list[str]: A list of model IDs matching the search criteria.
 
     Examples:
-        - To find trending models: list_models(sort="trending_score", limit=10)
-        - To search for models related to "deepseek": list_models(search="deepseek", sort="likes", limit=5)
-        - To filter by tag: list_models(tags=["text-generation"], pipeline_tag="text-generation")
+        - To find trending models: search_models(sort="trending_score", limit=10)
+        - To search for models related to "deepseek": search_models(search="deepseek", sort="likes", limit=5)
+        - To filter by tag: search_models(tags=["text-generation"], pipeline_tag="text-generation")
     """
     try:
         models = hf_api.list_models(
@@ -65,10 +65,13 @@ def list_models(
 @mcp.tool()
 def get_model_info(model_id: str) -> dict:
     """
-    Get detailed information about a specific model on Hugging Face Hub.
+    Get structured metadata about a model on the Hugging Face Hub.
 
-    This tool requires the exact model ID, which can be obtained using `list_models`.
-    If you have a partial name or tag, use `list_models` first to find the exact ID.
+    Use this when you need specific fields like downloads, tags, or other metadata.
+    For comprehensive model information, use `get_model_card`.
+
+    This tool requires the exact model ID, which can be obtained using `search_models`.
+    If you have a partial name or tag, use `search_models` first to find the exact ID.
 
     Parameters:
         model_id (str): The exact model ID in the format "organization/model-name" (e.g., "DeepSeek/DeepSeek-R1").
@@ -92,10 +95,10 @@ def get_model_info(model_id: str) -> dict:
             - xet_enabled: Whether XET is enabled (if available)
 
     Raises:
-        Exception: If the model_id is invalid or not found. Use list_models to find the correct ID.
+        Exception: If the model_id is invalid or not found. Use search_models to find the correct ID.
 
     Example:
-        - First, find the model ID: list_models(search="deepseek", sort="likes", limit=1)
+        - First, find the model ID: search_models(search="deepseek", sort="likes", limit=1)
         - Then, get the model info: get_model_info("DeepSeek/DeepSeek-R1")
     """
     try:
@@ -158,10 +161,39 @@ def get_model_info(model_id: str) -> dict:
             model_info["xet_enabled"] = model.xet_enabled
 
         return model_info
-    except Exception:
-        return {
-            "error": f"Failed to get model info for '{model_id}'. Use list_models to find the exact ID."
-        }
+    except Exception as e:
+        return {"error": f"Failed to get model info for '{model_id}': {e}"}
+
+
+@mcp.tool()
+def get_model_card(model_id: str) -> str:
+    """
+    Get the complete model card (README.md) for a specific model on Hugging Face Hub.
+
+    Use this when you need comprehensive model documentation including usage examples, model limitations, etc.
+    For only structured metadata, use `get_model_info` instead.
+
+    This tool requires the exact model ID, which can be obtained using `search_models`.
+    If you have a partial name or tag, use `search_models` first to find the exact ID.
+
+    Args:
+        model_id (str): The model ID in the format "organization/model-name" (e.g., "DeepSeek/DeepSeek-R1").
+
+    Returns:
+        str: The markdown content of the model card.
+
+    Example:
+        - First, find the model ID: search_models(search="deepseek", sort="likes", limit=1)
+        - Then, get the model card: get_model_card("DeepSeek/DeepSeek-R1")
+    """
+    try:
+        filepath = hf_api.hf_hub_download(model_id, "README.md")
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        return content
+    except Exception as e:
+        return {"error": f"Failed to get model card for '{model_id}': {e}"}
 
 
 if __name__ == "__main__":
