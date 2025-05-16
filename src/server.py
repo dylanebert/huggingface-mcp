@@ -1,8 +1,9 @@
 import os
 from typing import Literal
+import re
 
 from fastmcp import FastMCP
-from huggingface_hub import HfApi
+from huggingface_hub import HfApi, CommitOperationAdd
 
 mcp = FastMCP("Hugging Face MCP")
 
@@ -194,6 +195,102 @@ def get_model_card(model_id: str) -> str:
         return content
     except Exception as e:
         return {"error": f"Failed to get model card for '{model_id}': {e}"}
+
+
+@mcp.tool()
+def create_commit(
+    model_id: str,
+    pipeline_tag: str = None,
+    library_name: str = None,
+) -> str:
+    """
+    Create a pull request to modify specific metadata fields in the model card (README.md) for a model on Hugging Face Hub.
+
+    This tool only modifies the pipeline_tag and library_name fields in the YAML header of the README.
+    It will create a pull request with a fixed commit message "Update Metadata".
+
+    Args:
+        model_id (str): The model ID in the format "organization/model-name" (e.g., "DeepSeek/DeepSeek-R1").
+        pipeline_tag (str, optional): The pipeline tag to set (e.g., "text-generation").
+        library_name (str, optional): The library name to set (e.g., "pytorch").
+
+    Returns:
+        str: A message indicating whether the pull request was created successfully.
+    """
+    if not pipeline_tag and not library_name:
+        return "No changes requested. At least one of pipeline_tag or library_name must be provided."
+
+    try:
+        filepath = hf_api.hf_hub_download(model_id, "README.md")
+
+        with open(filepath, "rb") as f:
+            content_bytes = f.read()
+
+        content = content_bytes.decode("utf-8")
+        line_ending = "\r\n" if "\r\n" in content else "\n"
+
+        has_yaml_header = re.match(r"^---\s*[\r\n]", content) is not None
+
+        if not has_yaml_header:
+            header = "---" + line_ending
+            if pipeline_tag is not None:
+                header += f"pipeline_tag: {pipeline_tag}{line_ending}"
+            if library_name is not None:
+                header += f"library_name: {library_name}{line_ending}"
+            header += "---" + line_ending
+
+            content = header + content
+        else:
+            header_match = re.match(r"^---(.*?)---\s*", content, re.DOTALL)
+            if header_match:
+                header = header_match.group(1)
+                rest_of_content = content[header_match.end() :]
+
+                if pipeline_tag is not None:
+                    if re.search(r"^\s*pipeline_tag:", header, re.MULTILINE):
+                        header = re.sub(
+                            r"(^\s*pipeline_tag:).*?(\r?\n)",
+                            f"\\1 {pipeline_tag}\\2",
+                            header,
+                            flags=re.MULTILINE,
+                        )
+                    else:
+                        header += f"pipeline_tag: {pipeline_tag}{line_ending}"
+
+                if library_name is not None:
+                    if re.search(r"^\s*library_name:", header, re.MULTILINE):
+                        header = re.sub(
+                            r"(^\s*library_name:).*?(\r?\n)",
+                            f"\\1 {library_name}\\2",
+                            header,
+                            flags=re.MULTILINE,
+                        )
+                    else:
+                        header += f"library_name: {library_name}{line_ending}"
+
+                content = f"---{header}---{line_ending}{rest_of_content}"
+            else:
+                return "Malformed YAML header structure in README."
+
+        with open(filepath, "wb") as f:
+            f.write(content.encode("utf-8"))
+
+        operation = CommitOperationAdd(
+            path_in_repo="README.md",
+            path_or_fileobj=filepath,
+        )
+
+        hf_api.create_commit(
+            repo_id=model_id,
+            commit_message="Update Metadata",
+            commit_description="",
+            operations=[operation],
+            create_pr=True,
+        )
+
+        return f"Pull request created successfully for '{model_id}'"
+    except Exception as e:
+        return f"Failed to create pull request for '{model_id}': {e}"
 
 
 if __name__ == "__main__":
