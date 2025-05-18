@@ -198,7 +198,7 @@ def get_model_card(model_id: str) -> str:
 
 
 @mcp.tool()
-def create_commit(
+def update_metadata(
     model_id: str,
     pipeline_tag: str = None,
     library_name: str = None,
